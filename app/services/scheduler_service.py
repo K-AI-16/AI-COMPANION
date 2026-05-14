@@ -6,12 +6,15 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
+from app.core.logging_config import get_logger
 from app.models.user import User
 from app.models.insight import Insight
 from app.services.decision_service import DecisionService
 from app.services.trigger_service import TriggerService
 from app.repositories.trigger_repository import TriggerRepository
 from app.repositories.memory_repository import MemoryRepository
+
+logger = get_logger("scheduler")
 
 
 class SchedulerService:
@@ -23,7 +26,7 @@ class SchedulerService:
         users = db.query(User).all()
         for user in users:
             MemoryRepository.cleanup_low_quality_memories(db, user.id)
-        print(f"Memory cleanup ran for {len(users)} user(s)")
+        logger.info(f"Memory cleanup ran for {len(users)} user(s)")
 
     @staticmethod
     def _run_session_summaries(db):
@@ -44,54 +47,50 @@ class SchedulerService:
             summary = SessionSummaryService.generate(db, user.id)
             if summary:
                 SessionSummaryRepository.create(db, user.id, summary)
-                print(f"Session summary created for user {user.id}")
+                logger.info(f"Session summary created for user {user.id}")
 
     @staticmethod
     def run():
         while True:
-            print("\nRunning scheduler...")
+            logger.debug("Scheduler tick")
 
             db: Session = None
 
             try:
                 db = SessionLocal()
 
-                # Daily memory cleanup — runs regardless of time window
                 today = dt.date.today()
                 if SchedulerService._last_cleanup_date != today:
                     SchedulerService._run_cleanup(db)
                     SchedulerService._last_cleanup_date = today
 
-                # Session summaries — runs every tick, guards internally
                 SchedulerService._run_session_summaries(db)
 
                 current_hour = datetime.now().hour
 
                 if current_hour < 20 or current_hour > 23:
-                    print("Outside allowed trigger window")
+                    logger.debug("Outside trigger window (20:00–23:59), sleeping")
                     db.close()
                     db = None
                     time.sleep(30 * 60)
                     continue
 
                 users = db.query(User).all()
-                print("Users:", users)
+                logger.info(f"Evaluating {len(users)} user(s) for proactive triggers")
 
                 for user in users:
-                    print(f"\nScheduler tick for user {user.id}")
-
                     insight = db.query(Insight).filter(
                         Insight.user_id == user.id
                     ).first()
 
                     if not insight:
-                        print("No insight found")
+                        logger.debug(f"No insight for user {user.id}, skipping")
                         continue
 
                     decision = DecisionService.evaluate(db, insight.__dict__)
-                    print("Decision:", decision)
 
                     if not decision.get("candidate"):
+                        logger.debug(f"User {user.id}: no trigger — {decision.get('reason')}")
                         continue
 
                     memories = MemoryRepository.get_user_memories(db, user.id)
@@ -105,10 +104,10 @@ class SchedulerService:
                     )
 
                     if not message or len(message.strip()) == 0:
-                        print("Empty trigger message, skipping")
+                        logger.warning(f"User {user.id}: empty trigger message, skipping")
                         continue
 
-                    print(f"Triggering user {user.id}: {message}")
+                    logger.info(f"Triggering user {user.id} [{decision.get('trigger_type')}]: {message!r}")
 
                     TriggerRepository.create_trigger(
                         db=db,
@@ -123,6 +122,7 @@ class SchedulerService:
                     PushService.send_expo_to_user(db, user.id, message)
 
                     from app.services.whatsapp_service import WhatsAppService
+                    from app.repositories.message_repository import MessageRepository
                     last_msg = MessageRepository.get_last_user_message(db, user.id)
                     WhatsAppService.send_to_user(
                         db, user.id, message,
@@ -132,13 +132,12 @@ class SchedulerService:
                     time.sleep(1 + random.random())
 
             except Exception as e:
-                print("Scheduler error:", e)
+                logger.exception(f"Scheduler error: {e}")
 
             finally:
                 if db:
                     db.close()
 
             sleep_time = (30 * 60) + random.randint(0, 120)
-            print(f"Sleeping for {sleep_time}s...\n")
-
+            logger.debug(f"Sleeping {sleep_time}s until next tick")
             time.sleep(sleep_time)

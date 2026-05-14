@@ -1,16 +1,36 @@
-from fastapi import FastAPI, Depends, HTTPException, Header
+from fastapi import FastAPI, Depends, HTTPException, Header, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from app.core.database import get_db
+from app.core.logging_config import setup_logging, get_logger
 from app.services.conversation_service import ConversationService
 import threading
 import os
 from app.services.scheduler_service import SchedulerService
 from fastapi.middleware.cors import CORSMiddleware
+from app.middleware.logging_middleware import LoggingMiddleware
 from pydantic import BaseModel
 from app.repositories.trigger_repository import TriggerRepository
 from app.repositories.memory_repository import MemoryRepository
 from app.repositories.message_repository import MessageRepository
 from datetime import datetime
+
+setup_logging()
+logger = get_logger("main")
+
+# Sentry — optional, only activates when SENTRY_DSN is set
+_SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+if _SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+    sentry_sdk.init(
+        dsn=_SENTRY_DSN,
+        integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+        traces_sample_rate=0.2,
+        send_default_pii=False,
+    )
+    logger.info("Sentry initialised")
 
 _DEBUG_TOKEN = os.getenv("DEBUG_TOKEN", "")
 
@@ -24,6 +44,7 @@ from app.routers.whatsapp import router as whatsapp_router
 app = FastAPI()
 app.include_router(whatsapp_router)
 
+app.add_middleware(LoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,6 +52,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception(f"Unhandled error on {request.method} {request.url.path}: {exc}")
+    return JSONResponse(status_code=500, content={"detail": "internal server error"})
 
 class ChatRequest(BaseModel):
     user_id: str
@@ -51,7 +78,6 @@ class PivotRequest(BaseModel):
 
 @app.on_event("startup")
 def startup():
-    # Auto-create tables on first deploy (idempotent — safe to run every restart)
     from app.core.database import engine, Base
     from app.models.user import User
     from app.models.message import Message
@@ -64,9 +90,22 @@ def startup():
     from app.models.push_subscription import PushSubscription
     from app.models.expo_push_token import ExpoPushToken
     Base.metadata.create_all(bind=engine)
+    logger.info("Database tables verified")
 
     thread = threading.Thread(target=SchedulerService.run, daemon=True)
     thread.start()
+    logger.info("Scheduler started")
+
+
+@app.get("/health")
+def health(db: Session = Depends(get_db)):
+    try:
+        db.execute(__import__("sqlalchemy").text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        db_ok = False
+    status = "ok" if db_ok else "degraded"
+    return {"status": status, "db": db_ok}
 
 class PushSubscribeRequest(BaseModel):
     user_id: str

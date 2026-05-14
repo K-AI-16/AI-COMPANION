@@ -6,6 +6,9 @@ from app.repositories.message_repository import MessageRepository
 from app.repositories.memory_repository import MemoryRepository
 from app.services.confidence_gate import ConfidenceGate
 from app.utils.memory_filters import is_actionable_state
+from app.core.logging_config import get_logger
+
+logger = get_logger("decision")
 
 
 class DecisionService:
@@ -189,7 +192,7 @@ class DecisionService:
         score += state_boost
         score += open_thread_boost
 
-        print("Trigger Score:", score)
+        logger.debug(f"Trigger score for {user_id}: {score:.3f}")
 
         threshold = overrides.get("score_threshold", 0.75)
 

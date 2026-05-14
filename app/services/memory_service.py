@@ -1,5 +1,8 @@
 from app.services.llm_service import client
+from app.core.logging_config import get_logger
 import json
+
+logger = get_logger("memory")
 
 
 class MemoryService:
@@ -113,7 +116,7 @@ class MemoryService:
             return data if isinstance(data, list) else []
 
         except Exception as e:
-            print("Memory extraction error:", e)
+            logger.exception(f"Memory extraction error: {e}")
             return []
 
     @staticmethod
@@ -177,6 +180,6 @@ class MemoryService:
                 db.add(new_memory)
 
             except Exception as e:
-                print("Memory save error:", e)
+                logger.warning(f"Memory save error for {user_id}: {e}")
 
         db.commit()

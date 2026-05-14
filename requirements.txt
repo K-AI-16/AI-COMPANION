@@ -36,4 +36,5 @@ SQLAlchemy==2.0.48
 starlette==1.0.0
 tqdm==4.67.3
 typing-inspection==0.4.2
+sentry-sdk[fastapi]==2.60.0
 uvicorn==0.42.0

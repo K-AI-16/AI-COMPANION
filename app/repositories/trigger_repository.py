@@ -1,5 +1,8 @@
 from app.models.trigger_log import TriggerLog
 from datetime import datetime, timedelta
+from app.core.logging_config import get_logger
+
+logger = get_logger("trigger_repo")
 
 
 class TriggerRepository:
@@ -20,7 +23,7 @@ class TriggerRepository:
     def create_trigger(db, user_id, trigger_type=None, confidence=None, message=None):
 
         if not message or len(message.strip()) == 0:
-            print("Skipping empty trigger")
+            logger.warning(f"Skipping empty trigger for user {user_id}")
             return None
 
         trigger = TriggerLog(

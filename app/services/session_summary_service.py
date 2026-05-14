@@ -1,5 +1,8 @@
 from app.services.llm_service import client
 from app.repositories.message_repository import MessageRepository
+from app.core.logging_config import get_logger
+
+logger = get_logger("session_summary")
 
 
 class SessionSummaryService:
@@ -31,5 +34,5 @@ class SessionSummaryService:
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
-            print(f"Session summary generation failed: {e}")
+            logger.warning(f"Session summary generation failed for user {user_id}: {e}")
             return None
