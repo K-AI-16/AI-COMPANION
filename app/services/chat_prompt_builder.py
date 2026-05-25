@@ -18,8 +18,17 @@ class ChatPromptBuilder:
         insight_context: str,
         intent_context: str,
         curiosity_hint: str = "None",
+        is_new_user: bool = False,
     ):
         config = CHAT_PROMPT_CONFIG
+
+        user_mode = (
+            "NEW USER MODE: You barely know this person. Be warm but curious — your job is to get to know them. "
+            "Ask one specific question each turn, tied to what they said. Learn who they are."
+            if is_new_user else
+            "RETURNING USER MODE: You know things about this person. Don't treat them like a stranger. "
+            "Use what you know to make the conversation feel familiar and personal."
+        )
 
         base_rules = ChatPromptBuilder._bullets(config["base_rules"])
         tone_rules = ChatPromptBuilder._bullets(config["tone_rules"])
@@ -35,6 +44,8 @@ class ChatPromptBuilder:
         return (
             personality_prompt
             + f"""
+
+{user_mode}
 
 Chat reply standards:
 {base_rules}

@@ -62,6 +62,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 class ChatRequest(BaseModel):
     user_id: str
     message: str
+    client_time: str | None = None
 
 
 class ClassifyRequest(BaseModel):
@@ -180,7 +181,8 @@ def chat(request: ChatRequest, db: Session = Depends(get_db)):
     result = ConversationService.handle_user_message(
         db,
         request.user_id,
-        request.message
+        request.message,
+        client_time=request.client_time,
     )
     # Push each reply bubble as a separate notification
     if result["replies"]:

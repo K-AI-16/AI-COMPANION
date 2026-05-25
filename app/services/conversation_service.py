@@ -27,7 +27,7 @@ from app.repositories.session_summary_repository import SessionSummaryRepository
 class ConversationService:
 
     @staticmethod
-    def handle_user_message(db: Session, user_id: str, message: str):
+    def handle_user_message(db: Session, user_id: str, message: str, client_time: str | None = None):
 
         # -------------------------------
         # 0. Ensure user exists and detect session gap before storing
@@ -97,10 +97,12 @@ class ConversationService:
             all_memories = MemoryRepository.get_user_memories(db, user_id, limit=50)
 
         # -------------------------------
-        # 5b. Compute curiosity gaps
+        # 5b. Compute curiosity gaps + user mode
         # -------------------------------
         known_types = {m.type for m in all_memories}
         known_keys = {(m.type, m.key.lower()) for m in all_memories}
+        memory_count = len(all_memories)
+        is_new_user = memory_count < 4
 
         def missing(mtype, key):
             return (mtype, key) not in known_keys
@@ -135,17 +137,23 @@ class ConversationService:
         if "preference" not in known_types:
             gaps.append("what they genuinely enjoy or care about outside of work")
 
-        # Cap at 4 gaps per turn so the prompt doesn't get cluttered
-        gaps = gaps[:4]
-
-        curiosity_hint = ""
-        if gaps:
+        if is_new_user and gaps:
             curiosity_hint = (
-                "Things you genuinely don't know about this user yet — learn these naturally over time:\n"
-                + "\n".join(f"- {g}" for g in gaps)
-                + "\nWhen the conversation gives a real opening, ask about one. "
-                "Tie it to something they actually said. Never ask out of thin air."
+                "NEW USER — you barely know this person yet. Your job this conversation: find out who they actually are.\n"
+                "After each reply, ask ONE specific natural question. Don't wait for the perfect opening — make one.\n"
+                "Never ask two questions at once. Tie each question to something they said.\n"
+                "Priority gaps to fill:\n"
+                + "\n".join(f"- {g}" for g in gaps[:5])
             )
+        elif gaps:
+            gaps = gaps[:3]
+            curiosity_hint = (
+                "Things you don't know yet — learn these naturally when there's a real opening:\n"
+                + "\n".join(f"- {g}" for g in gaps)
+                + "\nTie it to something they said. Never ask out of thin air."
+            )
+        else:
+            curiosity_hint = ""
 
         # -------------------------------
         # 6. Build LLM messages with session awareness
@@ -162,6 +170,8 @@ class ConversationService:
             session_summaries,
             curiosity_hint,
             personality_prompt,
+            client_time=client_time,
+            is_new_user=is_new_user,
         )
 
         # -------------------------------
@@ -235,14 +245,15 @@ class ConversationService:
         session_summaries=None,
         curiosity_hint="",
         personality_prompt="",
+        client_time: str | None = None,
+        is_new_user: bool = False,
     ):
 
-        now = datetime.now()
-
-        time_context = (
-            f"Current time: {now.strftime('%I:%M %p')}\n"
-            f"Day: {now.strftime('%A')}"
-        )
+        if client_time:
+            time_context = f"Current time (user's local): {client_time}"
+        else:
+            now = datetime.utcnow()
+            time_context = f"Current time (UTC): {now.strftime('%I:%M %p, %A')}"
 
         # -------------------------------
         # CHAT HISTORY
@@ -302,8 +313,17 @@ class ConversationService:
         # -------------------------------
         memory_context = ""
         if other_memories:
-            memory_context = "Known about user:\n"
-            for m in other_memories[:6]:
+            if is_new_user:
+                memory_context = "Known about user (very limited — still learning):\n"
+            elif len(other_memories) >= 8:
+                memory_context = (
+                    "Known about user — you know them well. Use this to make the conversation "
+                    "feel personal, not like you're meeting them for the first time. "
+                    "Reference what you know naturally, like a friend who remembers:\n"
+                )
+            else:
+                memory_context = "Known about user:\n"
+            for m in other_memories[:8]:
                 memory_context += f"- {m.value}\n"
 
         pivot_context = ""
@@ -365,6 +385,7 @@ class ConversationService:
             insight_context=insight_context or "None",
             intent_context=intent_context or "None",
             curiosity_hint=curiosity_hint or "None",
+            is_new_user=is_new_user,
         )
 
         return [
