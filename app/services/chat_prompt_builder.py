@@ -42,18 +42,15 @@ Chat reply standards:
 Tone:
 {tone_rules}
 
-Avoid these phrases:
+HARD BAN — never output these phrases or close variations. If you catch yourself writing one, delete it and write something else:
 {avoid_phrases}
 
 Prefer this kind of shape:
 {style_examples}
 
-Conversation state:
-- state: {state_name}
-- confidence: {(conversation_state or {}).get("confidence", 0.0)}
-- reason: {(conversation_state or {}).get("reason", "")}
+Conversation state: {state_name}
 
-State-specific behavior:
+State-specific behavior (follow this closely):
 {state_rules_text}
 
 Context:

@@ -27,6 +27,15 @@ class MessageRepository:
             .first()
         )
     @staticmethod
+    def get_last_message(db, user_id: str):
+        return (
+            db.query(Message)
+            .filter(Message.user_id == user_id)
+            .order_by(desc(Message.created_at))
+            .first()
+        )
+
+    @staticmethod
     def get_recent_messages(db, user_id: str, limit: int = 8):
         return (
             db.query(Message)

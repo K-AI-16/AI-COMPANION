@@ -217,14 +217,26 @@ def chat_nudge(request: NudgeRequest, db: Session = Depends(get_db)):
     return {"message": message, "skip": False}
 
 
+_GOODBYE_SIGNALS = {"bye", "later", "catch you", "gotta go", "ttyl", "talk later", "goodbye", "see you", "cya", "good night", "goodnight", "ok cool", "alright cool", "catch you later", "see ya"}
+
 @app.post("/v1/chat/pivot")
 def chat_pivot(request: PivotRequest, db: Session = Depends(get_db)):
     from app.services.pivot_service import PivotService
-    # Skip pivot if user was active within the last 5 minutes
     last_user_msg = MessageRepository.get_last_user_message(db, request.user_id)
     if last_user_msg:
         seconds_since = (datetime.utcnow() - last_user_msg.created_at).total_seconds()
+        # Skip if user was active within the last 5 minutes
         if seconds_since < 300:
+            return {"message": None, "skip": True}
+        # Skip if user said goodbye — never pivot after someone leaves
+        msg_lower = last_user_msg.content.lower()
+        if any(signal in msg_lower for signal in _GOODBYE_SIGNALS):
+            return {"message": None, "skip": True}
+    # Also skip if Ari itself wrapped up the conversation — e.g. said "catch you later"
+    last_msg = MessageRepository.get_last_message(db, request.user_id)
+    if last_msg and last_msg.role == "assistant":
+        assistant_lower = last_msg.content.lower()
+        if any(signal in assistant_lower for signal in _GOODBYE_SIGNALS):
             return {"message": None, "skip": True}
     message = PivotService.generate(db, request.user_id)
     if not message:
